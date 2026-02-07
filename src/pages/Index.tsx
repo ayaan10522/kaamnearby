@@ -2,10 +2,11 @@ import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Search, MapPin, Briefcase, Users, CheckCircle, ArrowRight } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
+import { getJobs, getUsers, getApplications } from '@/lib/firebase';
 
 const Index = () => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -35,12 +36,39 @@ const Index = () => {
     }
   ];
 
-  const stats = [
-    { value: "10K+", label: "Jobs Posted" },
-    { value: "5K+", label: "Companies" },
-    { value: "50K+", label: "Job Seekers" },
-    { value: "25K+", label: "Successful Hires" }
-  ];
+  const [stats, setStats] = useState<{ value: string; label: string }[]>([
+    { value: "0", label: "Jobs Posted" },
+    { value: "0", label: "Companies" },
+    { value: "0", label: "Job Seekers" },
+    { value: "0", label: "Successful Hires" }
+  ]);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const [jobs, users, applications] = await Promise.all([
+          getJobs(),
+          getUsers(),
+          getApplications()
+        ]);
+
+        const jobsCount = Array.isArray(jobs) ? jobs.length : 0;
+        const companiesCount = Array.isArray(users) ? users.filter((u: any) => u.userType === 'employer').length : 0;
+        const seekersCount = Array.isArray(users) ? users.filter((u: any) => u.userType === 'jobseeker').length : 0;
+        const hiresCount = Array.isArray(applications) ? applications.filter((a: any) => a.status === 'accepted').length : 0;
+
+        setStats([
+          { value: String(jobsCount), label: "Jobs Posted" },
+          { value: String(companiesCount), label: "Companies" },
+          { value: String(seekersCount), label: "Job Seekers" },
+          { value: String(hiresCount), label: "Successful Hires" }
+        ]);
+      } catch (e) {
+        // keep defaults on error
+      }
+    };
+    fetchStats();
+  }, []);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -148,7 +176,7 @@ const Index = () => {
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Button 
               size="lg" 
-              className="bg-secondary-foreground text-secondary hover:bg-secondary-foreground/90" 
+              className="gradient-secondary" 
               asChild
             >
               <Link to="/register">
@@ -158,7 +186,7 @@ const Index = () => {
             <Button 
               size="lg" 
               variant="outline" 
-              className="border-secondary-foreground text-secondary-foreground hover:bg-secondary-foreground/10" 
+              className="border-foreground text-foreground hover:bg-foreground/10" 
               asChild
             >
               <Link to="/jobs">Browse Jobs</Link>
