@@ -111,6 +111,39 @@ export const getJobs = async () => {
   return [];
 };
 
+// Real-time job count listener
+export const subscribeToJobCount = (callback: (count: number) => void) => {
+  const jobsRef = ref(database, 'jobs');
+  return onValue(jobsRef, (snapshot) => {
+    if (snapshot.exists()) {
+      const jobs = snapshot.val();
+      const activeCount = Object.values(jobs).filter((job: any) => job.status === 'active').length;
+      callback(activeCount);
+    } else {
+      callback(0);
+    }
+  });
+};
+
+// Real-time user count listener
+export const subscribeToUserCount = (callback: (counts: { employers: number; jobseekers: number }) => void) => {
+  const usersRef = ref(database, 'users');
+  return onValue(usersRef, (snapshot) => {
+    if (snapshot.exists()) {
+      const users = snapshot.val();
+      let employers = 0;
+      let jobseekers = 0;
+      Object.values(users).forEach((u: any) => {
+        if (u.userType === 'employer') employers++;
+        else jobseekers++;
+      });
+      callback({ employers, jobseekers });
+    } else {
+      callback({ employers: 0, jobseekers: 0 });
+    }
+  });
+};
+
 export const getJobById = async (jobId: string) => {
   const jobRef = ref(database, `jobs/${jobId}`);
   const snapshot = await get(jobRef);
@@ -131,19 +164,6 @@ export const getJobsByEmployer = async (employerId: string) => {
     return Object.keys(jobs)
       .filter(key => jobs[key].employerId === employerId)
       .map(key => ({ id: key, ...jobs[key] }));
-  }
-  
-  return [];
-};
-
-// Get all users
-export const getUsers = async () => {
-  const usersRef = ref(database, 'users');
-  const snapshot = await get(usersRef);
-  
-  if (snapshot.exists()) {
-    const users = snapshot.val();
-    return Object.keys(users).map(key => ({ id: key, ...users[key] }));
   }
   
   return [];
@@ -219,19 +239,6 @@ export const getApplicationsByEmployer = async (employerId: string) => {
 export const updateApplicationStatus = async (appId: string, status: string) => {
   const appRef = ref(database, `applications/${appId}`);
   await update(appRef, { status });
-};
-
-// Get all applications
-export const getApplications = async () => {
-  const appsRef = ref(database, 'applications');
-  const snapshot = await get(appsRef);
-  
-  if (snapshot.exists()) {
-    const apps = snapshot.val();
-    return Object.keys(apps).map(key => ({ id: key, ...apps[key] }));
-  }
-  
-  return [];
 };
 
 // Chat functions
