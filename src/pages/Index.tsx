@@ -1,12 +1,13 @@
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Search, MapPin, Briefcase, Users, ArrowRight, MessageSquare, Shield, Zap, TrendingUp, CheckCircle } from 'lucide-react';
+import { Search, MapPin, Briefcase, Users, ArrowRight, MessageSquare, Shield, Zap, TrendingUp, CheckCircle, Quote } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { subscribeToJobCount, subscribeToUserCount } from '@/lib/firebase';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
+import ayaanPhoto from '@/assets/ayaan.jpg';
 
 const Index = () => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -195,6 +196,39 @@ const Index = () => {
                 <p className="text-muted-foreground text-sm leading-relaxed">{feature.description}</p>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Founder Section */}
+      <section className="py-20 md:py-28 bg-background">
+        <div className="container mx-auto px-4">
+          <div className="max-w-3xl mx-auto">
+            <div className="text-center mb-10">
+              <span className="text-secondary text-xs font-bold uppercase tracking-widest">Meet the Creator</span>
+              <h2 className="text-3xl md:text-4xl font-extrabold mt-3">The Mind Behind KaamNearby</h2>
+            </div>
+            <div className="bg-card rounded-3xl border border-border p-8 md:p-12 flex flex-col md:flex-row items-center gap-8">
+              <div className="relative flex-shrink-0">
+                <div className="w-32 h-32 md:w-40 md:h-40 rounded-2xl overflow-hidden ring-4 ring-secondary/20 shadow-elevated">
+                  <img src={ayaanPhoto} alt="Ayaan — Founder of KaamNearby" className="w-full h-full object-cover" />
+                </div>
+                <div className="absolute -bottom-2 -right-2 bg-secondary text-secondary-foreground text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-full shadow-sm">
+                  Founder
+                </div>
+              </div>
+              <div className="text-center md:text-left flex-1">
+                <h3 className="text-2xl font-extrabold mb-1">Ayaan</h3>
+                <p className="text-secondary font-semibold text-sm mb-4">Founder & Creator</p>
+                <div className="relative">
+                  <Quote className="h-5 w-5 text-secondary/30 absolute -top-1 -left-2 hidden md:block" />
+                  <p className="text-muted-foreground text-sm leading-relaxed md:pl-5">
+                    I built KaamNearby because I believe everyone deserves access to opportunities near them. 
+                    Our smart matching algorithm connects the right people with the right jobs — no middlemen, no hassle, just real connections.
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
