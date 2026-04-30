@@ -241,6 +241,34 @@ export const updateApplicationStatus = async (appId: string, status: string) => 
   await update(appRef, { status });
 };
 
+export const withdrawApplication = async (appId: string) => {
+  const appRef = ref(database, `applications/${appId}`);
+  await set(appRef, null);
+};
+
+export const updateJob = async (jobId: string, updates: any) => {
+  const jobRef = ref(database, `jobs/${jobId}`);
+  await update(jobRef, updates);
+};
+
+export const deleteJob = async (jobId: string) => {
+  const jobRef = ref(database, `jobs/${jobId}`);
+  await set(jobRef, null);
+};
+
+// Increment view count atomically-ish (best-effort for RTDB without transactions)
+export const incrementJobViews = async (jobId: string) => {
+  const viewsRef = ref(database, `jobs/${jobId}/views`);
+  const snap = await get(viewsRef);
+  const current = snap.exists() ? Number(snap.val()) || 0 : 0;
+  await set(viewsRef, current + 1);
+};
+
+export const getApplicationCountByJob = async (jobId: string): Promise<number> => {
+  const apps = await getApplicationsByJob(jobId);
+  return apps.length;
+};
+
 // Chat functions
 export const createChat = async (user1Id: string, user2Id: string, applicationId: string) => {
   const chatsRef = ref(database, 'chats');

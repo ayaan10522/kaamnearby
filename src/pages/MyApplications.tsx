@@ -3,8 +3,9 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { getApplicationsByUser } from '@/lib/firebase';
-import { Loader2, FileText, Building2, Clock, CheckCircle, XCircle, HourglassIcon, ArrowRight, Briefcase } from 'lucide-react';
+import { getApplicationsByUser, withdrawApplication } from '@/lib/firebase';
+import { useToast } from '@/hooks/use-toast';
+import { Loader2, FileText, Building2, Clock, CheckCircle, XCircle, HourglassIcon, ArrowRight, Briefcase, Trash2 } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
 
@@ -16,10 +17,22 @@ interface Application {
 const MyApplications = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => { if (!user) { navigate('/login'); return; } fetchApplications(); }, [user]);
+
+  const handleWithdraw = async (e: React.MouseEvent, appId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!confirm('Withdraw this application?')) return;
+    try {
+      await withdrawApplication(appId);
+      toast({ title: 'Application Withdrawn' });
+      fetchApplications();
+    } catch { toast({ title: 'Error', variant: 'destructive' }); }
+  };
 
   const fetchApplications = async () => {
     if (!user) return;
@@ -109,11 +122,21 @@ const MyApplications = () => {
                             <p className="text-xs text-muted-foreground mt-0.5">Expected: {app.expectedSalary}</p>
                           )}
                         </div>
-                        <div className="flex items-center gap-2.5 flex-shrink-0">
+                        <div className="flex items-center gap-2 flex-shrink-0">
                           <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold ${config.bg}`}>
                             {config.icon}
                             {config.label}
                           </div>
+                          {app.status === 'pending' && (
+                            <button
+                              onClick={(e) => handleWithdraw(e, app.id)}
+                              className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                              aria-label="Withdraw application"
+                              title="Withdraw"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
                           <ArrowRight className="h-4 w-4 text-muted-foreground/40 group-hover:text-secondary transition-colors" />
                         </div>
                       </div>

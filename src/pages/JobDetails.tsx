@@ -7,14 +7,17 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { useAuth } from '@/contexts/AuthContext';
-import { getJobById, createApplication, getUserById } from '@/lib/firebase';
+import { getJobById, createApplication, getUserById, incrementJobViews, getApplicationCountByJob, getApplicationsByUser, withdrawApplication } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
-import { MapPin, IndianRupee, Clock, Briefcase, Building2, ArrowLeft, Loader2, CheckCircle, User, Calendar, Send, Globe, Users, Share2 } from 'lucide-react';
+import { MapPin, IndianRupee, Clock, Briefcase, Building2, ArrowLeft, Loader2, CheckCircle, User, Calendar, Send, Globe, Users, Share2, Bookmark, BookmarkCheck, Navigation, Eye, AlertCircle, Trash2 } from 'lucide-react';
+import { jobDistanceKm, formatDistance, type GeoCoords } from '@/lib/geo';
+import { isJobSaved, toggleSavedJob } from '@/lib/savedJobs';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
 
 interface Job {
   id: string; title: string; description: string; company: string; location: string;
+  coords?: GeoCoords | null; views?: number;
   salary: string; type: string; requirements: string[]; employerId: string; createdAt: number; status: string;
 }
 
@@ -30,8 +33,12 @@ const JobDetails = () => {
   const [applying, setApplying] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
   const [applicationData, setApplicationData] = useState({ coverLetter: '', expectedSalary: '', availableFrom: '' });
+  const [appCount, setAppCount] = useState(0);
+  const [saved, setSaved] = useState(false);
+  const [myApplication, setMyApplication] = useState<any>(null);
 
   useEffect(() => { if (id) fetchJob(); }, [id]);
+  useEffect(() => { if (user && id) setSaved(isJobSaved(user.id, id)); }, [user, id]);
 
   const fetchJob = async () => {
     setLoading(true);
@@ -39,11 +46,54 @@ const JobDetails = () => {
       const fetchedJob = await getJobById(id!);
       if (fetchedJob) {
         setJob(fetchedJob);
-        const employerData = await getUserById(fetchedJob.employerId);
+        const [employerData, count] = await Promise.all([
+          getUserById(fetchedJob.employerId),
+          getApplicationCountByJob(id!),
+        ]);
         setEmployer(employerData);
+        setAppCount(count);
+        // increment views (best-effort, don't count own employer)
+        if (!user || user.id !== fetchedJob.employerId) {
+          incrementJobViews(id!).catch(() => {});
+        }
+        // Check if current user has already applied
+        if (user && user.userType === 'jobseeker') {
+          const myApps = await getApplicationsByUser(user.id);
+          const existing = myApps.find((a: any) => a.jobId === id);
+          setMyApplication(existing || null);
+        }
       }
     } catch (error) { console.error('Error fetching job:', error); }
     finally { setLoading(false); }
+  };
+
+  const handleSaveToggle = () => {
+    if (!user) { navigate('/login'); return; }
+    const nowSaved = toggleSavedJob(user.id, id!);
+    setSaved(nowSaved);
+    toast({ title: nowSaved ? 'Job Saved' : 'Removed from saved', description: nowSaved ? 'Find it later in your saved jobs' : '' });
+  };
+
+  const handleShare = async () => {
+    const url = window.location.href;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: job?.title, text: `Check out this job: ${job?.title} at ${job?.company}`, url });
+      } else {
+        await navigator.clipboard.writeText(url);
+        toast({ title: 'Link Copied', description: 'Share with others to spread the word' });
+      }
+    } catch {}
+  };
+
+  const handleWithdraw = async () => {
+    if (!myApplication) return;
+    if (!confirm('Withdraw your application?')) return;
+    try {
+      await withdrawApplication(myApplication.id);
+      setMyApplication(null);
+      toast({ title: 'Application Withdrawn' });
+    } catch { toast({ title: 'Error', variant: 'destructive' }); }
   };
 
   const handleApply = async () => {
@@ -61,6 +111,7 @@ const JobDetails = () => {
       toast({ title: "Application Submitted!", description: "The employer will review your application soon" });
       setShowApplyModal(false);
       setApplicationData({ coverLetter: '', expectedSalary: '', availableFrom: '' });
+      fetchJob();
     } catch (error: any) {
       toast({ title: "Error", description: error.message || "Failed to submit application", variant: "destructive" });
     } finally { setApplying(false); }
@@ -116,13 +167,33 @@ const JobDetails = () => {
                 <Building2 className="h-7 w-7 md:h-8 md:w-8 text-primary-foreground" />
               </div>
               <div className="flex-1 min-w-0">
-                <h1 className="text-2xl md:text-3xl font-extrabold text-primary-foreground mb-1.5">{job.title}</h1>
-                <p className="text-primary-foreground/70 text-sm font-medium">{job.company}</p>
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="min-w-0">
+                    <h1 className="text-2xl md:text-3xl font-extrabold text-primary-foreground mb-1.5">{job.title}</h1>
+                    <p className="text-primary-foreground/70 text-sm font-medium">{job.company}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={handleSaveToggle} className="bg-primary-foreground/10 border-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/20 rounded-xl text-xs h-9">
+                      {saved ? <BookmarkCheck className="h-4 w-4 mr-1.5" /> : <Bookmark className="h-4 w-4 mr-1.5" />}
+                      {saved ? 'Saved' : 'Save'}
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={handleShare} className="bg-primary-foreground/10 border-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/20 rounded-xl text-xs h-9">
+                      <Share2 className="h-4 w-4 mr-1.5" /> Share
+                    </Button>
+                  </div>
+                </div>
                 <div className="flex flex-wrap gap-4 text-xs text-primary-foreground/55 mt-4 font-medium">
                   <span className="flex items-center gap-1.5"><MapPin className="h-4 w-4" />{job.location}</span>
                   {job.salary && <span className="flex items-center gap-1.5"><IndianRupee className="h-4 w-4" />{job.salary}</span>}
                   <span className="flex items-center gap-1.5"><Clock className="h-4 w-4" />Posted {formatDate(job.createdAt)}</span>
                   <span className="flex items-center gap-1.5"><Briefcase className="h-4 w-4" />{job.type}</span>
+                  <span className="flex items-center gap-1.5"><Eye className="h-4 w-4" />{(job.views || 0)} views</span>
+                  <span className="flex items-center gap-1.5"><Users className="h-4 w-4" />{appCount} applied</span>
+                  {(() => {
+                    const d = jobDistanceKm(user?.profile?.coords, job.coords);
+                    if (d === null) return null;
+                    return <span className="flex items-center gap-1.5 text-secondary font-bold"><Navigation className="h-4 w-4" />{formatDistance(d)}</span>;
+                  })()}
                 </div>
               </div>
             </div>
@@ -168,13 +239,29 @@ const JobDetails = () => {
               {/* Apply CTA */}
               {user?.id !== job.employerId && (
                 <div className="bg-card border border-border rounded-2xl p-5">
-                  <h3 className="font-bold text-sm mb-2">Interested in this job?</h3>
-                  <p className="text-muted-foreground text-xs mb-4 leading-relaxed">
-                    Apply now and the employer will review your profile and resume.
-                  </p>
-                  <Button onClick={handleApply} className="w-full gradient-secondary rounded-xl font-semibold text-sm h-11 shadow-sm">
-                    <Send className="h-4 w-4 mr-2" /> Apply Now
-                  </Button>
+                  {myApplication ? (
+                    <>
+                      <h3 className="font-bold text-sm mb-2 flex items-center gap-2">
+                        <CheckCircle className="h-4 w-4 text-secondary" /> You've Applied
+                      </h3>
+                      <p className="text-muted-foreground text-xs mb-4 leading-relaxed">
+                        Status: <span className="font-semibold capitalize text-foreground">{myApplication.status}</span>
+                      </p>
+                      <Button onClick={handleWithdraw} variant="outline" className="w-full rounded-xl font-semibold text-sm h-11 text-destructive border-destructive/30 hover:bg-destructive hover:text-destructive-foreground">
+                        <Trash2 className="h-4 w-4 mr-2" /> Withdraw Application
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <h3 className="font-bold text-sm mb-2">Interested in this job?</h3>
+                      <p className="text-muted-foreground text-xs mb-4 leading-relaxed">
+                        Apply now and the employer will review your profile and resume.
+                      </p>
+                      <Button onClick={handleApply} className="w-full gradient-secondary rounded-xl font-semibold text-sm h-11 shadow-sm">
+                        <Send className="h-4 w-4 mr-2" /> Apply Now
+                      </Button>
+                    </>
+                  )}
                 </div>
               )}
 

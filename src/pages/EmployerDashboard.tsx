@@ -9,13 +9,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { useAuth } from '@/contexts/AuthContext';
-import { createJob, getJobsByEmployer, getApplicationsByEmployer, getUserById, updateApplicationStatus, createChat } from '@/lib/firebase';
+import { createJob, getJobsByEmployer, getApplicationsByEmployer, getUserById, updateApplicationStatus, createChat, deleteJob, updateJob } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, X, Briefcase, Users, Eye, Loader2, MapPin, IndianRupee, Clock, MessageSquare, CheckCircle, XCircle, Building2, TrendingUp, FileText } from 'lucide-react';
+import { Plus, X, Briefcase, Users, Eye, Loader2, MapPin, IndianRupee, Clock, MessageSquare, CheckCircle, XCircle, Building2, TrendingUp, FileText, Trash2, Navigation, PauseCircle, PlayCircle } from 'lucide-react';
+import { getCurrentLocation, jobDistanceKm, formatDistance, type GeoCoords } from '@/lib/geo';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
 
-interface Job { id: string; title: string; company: string; location: string; salary: string; type: string; createdAt: number; status: string; }
+interface Job { id: string; title: string; company: string; location: string; coords?: GeoCoords | null; salary: string; type: string; createdAt: number; status: string; views?: number; }
 interface Application { id: string; jobId: string; jobTitle: string; userId: string; userName: string; coverLetter: string; expectedSalary: string; availableFrom: string; status: string; createdAt: number; }
 
 const EmployerDashboard = () => {
@@ -30,7 +31,8 @@ const EmployerDashboard = () => {
   const [selectedApp, setSelectedApp] = useState<Application | null>(null);
   const [applicantProfile, setApplicantProfile] = useState<any>(null);
   const [newRequirement, setNewRequirement] = useState('');
-  const [jobForm, setJobForm] = useState({ title: '', company: '', location: '', salary: '', type: 'Full-time', description: '', requirements: [] as string[] });
+  const [locatingJob, setLocatingJob] = useState(false);
+  const [jobForm, setJobForm] = useState({ title: '', company: '', location: '', coords: null as GeoCoords | null, salary: '', type: 'Full-time', description: '', requirements: [] as string[] });
 
   useEffect(() => {
     if (!user) { navigate('/login'); return; }
@@ -59,7 +61,7 @@ const EmployerDashboard = () => {
       await createJob({ ...jobForm, employerId: user.id });
       toast({ title: "Job Posted!", description: "Your job listing is now live" });
       setShowPostModal(false);
-      setJobForm({ title: '', company: '', location: '', salary: '', type: 'Full-time', description: '', requirements: [] });
+      setJobForm({ title: '', company: '', location: '', coords: null, salary: '', type: 'Full-time', description: '', requirements: [] });
       fetchData();
     } catch (error: any) { toast({ title: "Error", description: error.message || "Failed to post job", variant: "destructive" }); }
     finally { setPosting(false); }
@@ -92,6 +94,29 @@ const EmployerDashboard = () => {
     try { const chatId = await createChat(user.id, app.userId, app.id); navigate(`/messages?chat=${chatId}`); }
     catch (error) { toast({ title: "Error", description: "Failed to start chat", variant: "destructive" }); }
   };
+
+  const handleDeleteJob = async (jobId: string) => {
+    if (!confirm('Delete this job? This cannot be undone.')) return;
+    try { await deleteJob(jobId); toast({ title: 'Job Deleted' }); fetchData(); }
+    catch { toast({ title: 'Error', description: 'Failed to delete', variant: 'destructive' }); }
+  };
+
+  const toggleJobStatus = async (job: Job) => {
+    const newStatus = job.status === 'active' ? 'closed' : 'active';
+    try { await updateJob(job.id, { status: newStatus }); toast({ title: newStatus === 'active' ? 'Job Reopened' : 'Job Closed' }); fetchData(); }
+    catch { toast({ title: 'Error', variant: 'destructive' }); }
+  };
+
+  const captureJobLocation = async () => {
+    setLocatingJob(true);
+    const c = await getCurrentLocation();
+    setLocatingJob(false);
+    if (!c) { toast({ title: 'Location unavailable', description: 'Allow location access', variant: 'destructive' }); return; }
+    setJobForm({ ...jobForm, coords: c });
+    toast({ title: 'Job location pinned', description: 'Applicants will see distance from their location' });
+  };
+
+  const appCountByJob = (jobId: string) => applications.filter(a => a.jobId === jobId).length;
 
   const formatDate = (ts: number) => {
     const days = Math.floor((Date.now() - ts) / (1000 * 60 * 60 * 24));
@@ -180,13 +205,21 @@ const EmployerDashboard = () => {
                                 <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{job.location}</span>
                                 {job.salary && <span className="flex items-center gap-1"><IndianRupee className="h-3 w-3" />{job.salary}</span>}
                                 <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{formatDate(job.createdAt)}</span>
+                                <span className="flex items-center gap-1"><Eye className="h-3 w-3" />{job.views || 0} views</span>
+                                <span className="flex items-center gap-1 text-secondary font-semibold"><Users className="h-3 w-3" />{appCountByJob(job.id)} applied</span>
                               </div>
                             </div>
                           </div>
-                          <div className="flex items-center gap-2.5 flex-shrink-0">
+                          <div className="flex items-center gap-2 flex-shrink-0">
                             <Badge variant={job.status === 'active' ? 'default' : 'secondary'} className="text-[10px] font-semibold rounded-lg px-2.5">{job.status}</Badge>
+                            <Button variant="outline" size="icon" onClick={() => toggleJobStatus(job)} title={job.status === 'active' ? 'Close job' : 'Reopen'} className="h-8 w-8 rounded-xl">
+                              {job.status === 'active' ? <PauseCircle className="h-4 w-4" /> : <PlayCircle className="h-4 w-4" />}
+                            </Button>
                             <Button variant="outline" size="sm" className="h-8 text-xs rounded-xl font-medium" asChild>
                               <Link to={`/jobs/${job.id}`}><Eye className="h-3.5 w-3.5 mr-1.5" />View</Link>
+                            </Button>
+                            <Button variant="outline" size="icon" onClick={() => handleDeleteJob(job.id)} className="h-8 w-8 rounded-xl text-destructive hover:bg-destructive hover:text-destructive-foreground">
+                              <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </div>
                         </div>
@@ -264,6 +297,19 @@ const EmployerDashboard = () => {
               <div className="space-y-2"><Label className="text-xs font-semibold">Location *</Label><Input placeholder="City, Area" value={jobForm.location} onChange={(e) => setJobForm({ ...jobForm, location: e.target.value })} className="text-sm rounded-xl h-10" /></div>
               <div className="space-y-2"><Label className="text-xs font-semibold">Salary</Label><Input placeholder="₹15,000/month" value={jobForm.salary} onChange={(e) => setJobForm({ ...jobForm, salary: e.target.value })} className="text-sm rounded-xl h-10" /></div>
             </div>
+            {/* Pin job coordinates */}
+            <div className="bg-muted/40 border border-border rounded-xl p-3 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold flex items-center gap-1.5"><Navigation className="h-3.5 w-3.5 text-secondary" /> Pin Exact Job Location</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                  {jobForm.coords ? `Pinned: ${jobForm.coords.lat.toFixed(4)}, ${jobForm.coords.lng.toFixed(4)}` : 'Applicants will see distance in km'}
+                </p>
+              </div>
+              <Button type="button" size="sm" variant={jobForm.coords ? "outline" : "secondary"} onClick={captureJobLocation} disabled={locatingJob} className="rounded-xl text-xs h-9 flex-shrink-0">
+                {locatingJob ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Navigation className="h-3.5 w-3.5 mr-1.5" />}
+                {jobForm.coords ? 'Update' : 'Pin Now'}
+              </Button>
+            </div>
             <div className="space-y-2">
               <Label className="text-xs font-semibold">Job Type</Label>
               <Select value={jobForm.type} onValueChange={(v) => setJobForm({ ...jobForm, type: v })}>
@@ -321,10 +367,16 @@ const EmployerDashboard = () => {
                 </div>
               </div>
 
-              {/* Applied For */}
+              {/* Applied For + Distance */}
               <div className="bg-secondary/5 border border-secondary/10 p-3 rounded-xl">
                 <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-0.5">Applied For</p>
                 <p className="text-sm font-bold">{selectedApp.jobTitle}</p>
+                {(() => {
+                  const job = jobs.find(j => j.id === selectedApp.jobId);
+                  const d = jobDistanceKm(applicantProfile.profile?.coords, job?.coords);
+                  if (d === null) return null;
+                  return <p className="text-xs text-secondary font-semibold mt-1.5 flex items-center gap-1.5"><Navigation className="h-3 w-3" />Applicant is {formatDistance(d)} from this job</p>;
+                })()}
               </div>
 
               {applicantProfile.profile && (

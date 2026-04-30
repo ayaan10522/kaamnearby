@@ -8,7 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/contexts/AuthContext';
 import { updateUserProfile } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Plus, X, User, Briefcase, GraduationCap, Award, MapPin, Building2, Globe, Users } from 'lucide-react';
+import { Loader2, Plus, X, User, Briefcase, GraduationCap, Award, MapPin, Building2, Globe, Users, Navigation, CheckCircle2 } from 'lucide-react';
+import { getCurrentLocation, type GeoCoords } from '@/lib/geo';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
 
@@ -16,19 +17,11 @@ interface JobseekerProfile {
   bio: string;
   headline: string;
   location: string;
+  coords?: GeoCoords | null;
   phone: string;
   skills: string[];
-  experience: {
-    title: string;
-    company: string;
-    duration: string;
-    description: string;
-  }[];
-  education: {
-    degree: string;
-    institution: string;
-    year: string;
-  }[];
+  experience: { title: string; company: string; duration: string; description: string }[];
+  education: { degree: string; institution: string; year: string }[];
   certifications: string[];
   languages: string[];
   expectedSalary: string;
@@ -40,6 +33,7 @@ interface EmployerProfile {
   companyDescription: string;
   industry: string;
   location: string;
+  coords?: GeoCoords | null;
   website: string;
   employeeCount: string;
   foundedYear: string;
@@ -57,30 +51,42 @@ const Profile = () => {
   const [newLang, setNewLang] = useState('');
 
   const [jobseekerProfile, setJobseekerProfile] = useState<JobseekerProfile>({
-    bio: '',
-    headline: '',
-    location: '',
-    phone: '',
-    skills: [],
-    experience: [],
-    education: [],
-    certifications: [],
-    languages: [],
-    expectedSalary: '',
-    availability: ''
+    bio: '', headline: '', location: '', coords: null, phone: '', skills: [],
+    experience: [], education: [], certifications: [], languages: [],
+    expectedSalary: '', availability: ''
   });
+  const [locating, setLocating] = useState(false);
 
   const [employerProfile, setEmployerProfile] = useState<EmployerProfile>({
-    companyName: '',
-    companyDescription: '',
-    industry: '',
-    location: '',
-    website: '',
-    employeeCount: '',
-    foundedYear: '',
-    contactEmail: '',
-    contactPhone: ''
+    companyName: '', companyDescription: '', industry: '', location: '', coords: null,
+    website: '', employeeCount: '', foundedYear: '',
+    contactEmail: '', contactPhone: ''
   });
+
+  const captureLocation = async (kind: 'jobseeker' | 'employer') => {
+    setLocating(true);
+    const c = await getCurrentLocation();
+    setLocating(false);
+    if (!c) {
+      toast({ title: 'Location Unavailable', description: 'Please allow location access in your browser', variant: 'destructive' });
+      return;
+    }
+    if (kind === 'jobseeker') setJobseekerProfile(p => ({ ...p, coords: c }));
+    else setEmployerProfile(p => ({ ...p, coords: c }));
+    toast({ title: 'Location Saved', description: 'Distance to jobs/applicants will now be shown' });
+  };
+
+  // Profile completeness percentage
+  const computeCompleteness = (): number => {
+    if (user?.userType === 'employer') {
+      const fields = [employerProfile.companyName, employerProfile.companyDescription, employerProfile.industry, employerProfile.location, employerProfile.website, employerProfile.employeeCount, employerProfile.contactEmail, employerProfile.contactPhone, employerProfile.coords ? 'y' : ''];
+      const filled = fields.filter(Boolean).length;
+      return Math.round((filled / fields.length) * 100);
+    }
+    const fields = [jobseekerProfile.bio, jobseekerProfile.headline, jobseekerProfile.location, jobseekerProfile.phone, jobseekerProfile.expectedSalary, jobseekerProfile.availability, jobseekerProfile.skills.length ? 'y' : '', jobseekerProfile.experience.length ? 'y' : '', jobseekerProfile.education.length ? 'y' : '', jobseekerProfile.coords ? 'y' : ''];
+    const filled = fields.filter(Boolean).length;
+    return Math.round((filled / fields.length) * 100);
+  };
 
   useEffect(() => {
     if (!user) {
@@ -206,12 +212,44 @@ const Profile = () => {
         
         <main className="flex-1 py-6 px-4">
           <div className="container mx-auto max-w-3xl">
-            <div className="mb-6">
+          <div className="mb-6">
               <h1 className="text-2xl font-bold">Company Profile</h1>
               <p className="text-muted-foreground text-sm">Tell job seekers about your company</p>
             </div>
 
+            {/* Profile completeness */}
+            <div className="bg-card border border-border rounded-2xl p-4 mb-5">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-semibold flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-secondary" /> Profile Completeness</p>
+                <span className="text-sm font-bold tabular-nums">{computeCompleteness()}%</span>
+              </div>
+              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                <div className="h-full gradient-secondary transition-all" style={{ width: `${computeCompleteness()}%` }} />
+              </div>
+              {computeCompleteness() < 80 && (
+                <p className="text-[11px] text-muted-foreground mt-2">Complete your profile to attract more applicants</p>
+              )}
+            </div>
+
             <form onSubmit={handleSubmit} className="space-y-5">
+              {/* Pin location */}
+              <Card className="shadow-sm border-border/50">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold flex items-center gap-2"><Navigation className="h-4 w-4 text-secondary" /> Pin Your Location</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {employerProfile.coords ? `Saved: ${employerProfile.coords.lat.toFixed(4)}, ${employerProfile.coords.lng.toFixed(4)}` : 'Helps applicants see how far they are from your jobs'}
+                      </p>
+                    </div>
+                    <Button type="button" variant={employerProfile.coords ? "outline" : "secondary"} size="sm" onClick={() => captureLocation('employer')} disabled={locating} className="rounded-xl text-xs h-9 flex-shrink-0">
+                      {locating ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Navigation className="h-3.5 w-3.5 mr-1.5" />}
+                      {employerProfile.coords ? 'Update' : 'Use My Location'}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
               {/* Company Info */}
               <Card className="shadow-sm border-border/50">
                 <CardHeader className="pb-4">
@@ -385,7 +423,39 @@ const Profile = () => {
             <p className="text-muted-foreground text-sm">Build your profile to attract employers</p>
           </div>
 
+          {/* Profile completeness */}
+          <div className="bg-card border border-border rounded-2xl p-4 mb-5">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-secondary" /> Profile Completeness</p>
+              <span className="text-sm font-bold tabular-nums">{computeCompleteness()}%</span>
+            </div>
+            <div className="h-2 bg-muted rounded-full overflow-hidden">
+              <div className="h-full gradient-secondary transition-all" style={{ width: `${computeCompleteness()}%` }} />
+            </div>
+            {computeCompleteness() < 80 && (
+              <p className="text-[11px] text-muted-foreground mt-2">A complete profile gets 3x more matches</p>
+            )}
+          </div>
+
           <form onSubmit={handleSubmit} className="space-y-5">
+            {/* Pin location */}
+            <Card className="shadow-sm border-border/50">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold flex items-center gap-2"><Navigation className="h-4 w-4 text-secondary" /> Pin Your Location</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {jobseekerProfile.coords ? `Saved: ${jobseekerProfile.coords.lat.toFixed(4)}, ${jobseekerProfile.coords.lng.toFixed(4)}` : 'See exact distance to every job & get smarter matches'}
+                    </p>
+                  </div>
+                  <Button type="button" variant={jobseekerProfile.coords ? "outline" : "secondary"} size="sm" onClick={() => captureLocation('jobseeker')} disabled={locating} className="rounded-xl text-xs h-9 flex-shrink-0">
+                    {locating ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Navigation className="h-3.5 w-3.5 mr-1.5" />}
+                    {jobseekerProfile.coords ? 'Update' : 'Use My Location'}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
             {/* Basic Info */}
             <Card className="shadow-sm border-border/50">
               <CardHeader className="pb-4">

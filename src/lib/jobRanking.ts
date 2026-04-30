@@ -1,9 +1,12 @@
 // Smart Job Feed Algorithm
 // Scores jobs based on how well they match a jobseeker's profile
 
+import { jobDistanceKm, type GeoCoords } from './geo';
+
 interface UserProfile {
   skills?: string[];
   location?: string;
+  coords?: GeoCoords | null;
   expectedSalary?: string;
   headline?: string;
   experience?: { title: string; company: string; duration: string; description: string }[];
@@ -16,6 +19,7 @@ interface Job {
   description: string;
   company: string;
   location: string;
+  coords?: GeoCoords | null;
   salary: string;
   type: string;
   requirements: string[];
@@ -27,6 +31,7 @@ interface Job {
 interface ScoredJob extends Job {
   matchScore: number;
   matchReasons: string[];
+  distanceKm: number | null;
 }
 
 // Normalize text for comparison
@@ -55,10 +60,16 @@ const parseSalary = (salary: string): number => {
 };
 
 export const rankJobsForUser = (jobs: Job[], userProfile: UserProfile | null): ScoredJob[] => {
+  const userCoords = userProfile?.coords ?? null;
+
   if (!userProfile) {
-    // No profile - sort by recency only
     return jobs
-      .map(job => ({ ...job, matchScore: 0, matchReasons: [] }))
+      .map(job => ({
+        ...job,
+        matchScore: 0,
+        matchReasons: [],
+        distanceKm: jobDistanceKm(userCoords, job.coords),
+      }))
       .sort((a, b) => b.createdAt - a.createdAt);
   }
 
@@ -66,40 +77,39 @@ export const rankJobsForUser = (jobs: Job[], userProfile: UserProfile | null): S
     let score = 0;
     const reasons: string[] = [];
 
-    // 1. SKILL MATCH (0-40 points) — Highest weight
+    // 1. SKILL MATCH (0-40 points)
     if (userProfile.skills?.length && job.requirements?.length) {
       let skillMatches = 0;
       for (const skill of userProfile.skills) {
         for (const req of job.requirements) {
-          if (fuzzyMatch(skill, req) >= 0.6) {
-            skillMatches++;
-            break;
-          }
+          if (fuzzyMatch(skill, req) >= 0.6) { skillMatches++; break; }
         }
       }
-      // Also check against title and description
       for (const skill of userProfile.skills) {
-        if (fuzzyMatch(skill, job.title) >= 0.5) {
-          skillMatches += 0.5;
-        }
-        if (normalize(job.description).includes(normalize(skill))) {
-          skillMatches += 0.3;
-        }
+        if (fuzzyMatch(skill, job.title) >= 0.5) skillMatches += 0.5;
+        if (normalize(job.description).includes(normalize(skill))) skillMatches += 0.3;
       }
       const skillScore = Math.min((skillMatches / Math.max(job.requirements.length, 1)) * 40, 40);
       score += skillScore;
       if (skillScore >= 15) reasons.push('Skills match');
     }
 
-    // 2. LOCATION MATCH (0-25 points)
-    if (userProfile.location && job.location) {
+    // 2. DISTANCE-BASED LOCATION (0-25 points) — uses coords if available
+    const dKm = jobDistanceKm(userCoords, job.coords);
+    if (dKm !== null) {
+      // Closer = higher score. 0km=25pts, 50km+=0pts
+      const locScore = Math.max(0, 25 - (dKm / 50) * 25);
+      score += locScore;
+      if (dKm <= 5) reasons.push('Very close');
+      else if (dKm <= 15) reasons.push('Nearby');
+    } else if (userProfile.location && job.location) {
       const locMatch = fuzzyMatch(userProfile.location, job.location);
       const locScore = locMatch * 25;
       score += locScore;
       if (locScore >= 10) reasons.push('Near you');
     }
 
-    // 3. HEADLINE/TITLE RELEVANCE (0-20 points)
+    // 3. HEADLINE/TITLE RELEVANCE (0-20)
     if (userProfile.headline) {
       const headlineMatch = fuzzyMatch(userProfile.headline, job.title);
       const descMatch = fuzzyMatch(userProfile.headline, job.description.substring(0, 200));
@@ -108,7 +118,7 @@ export const rankJobsForUser = (jobs: Job[], userProfile: UserProfile | null): S
       if (relevanceScore >= 8) reasons.push('Matches your profile');
     }
 
-    // 4. EXPERIENCE RELEVANCE (0-10 points)
+    // 4. EXPERIENCE (0-10)
     if (userProfile.experience?.length) {
       let expScore = 0;
       for (const exp of userProfile.experience) {
@@ -121,7 +131,7 @@ export const rankJobsForUser = (jobs: Job[], userProfile: UserProfile | null): S
       if (expScore >= 4) reasons.push('Related experience');
     }
 
-    // 5. SALARY ALIGNMENT (0-5 points)
+    // 5. SALARY (0-5)
     if (userProfile.expectedSalary && job.salary) {
       const userSal = parseSalary(userProfile.expectedSalary);
       const jobSal = parseSalary(job.salary);
@@ -133,18 +143,18 @@ export const rankJobsForUser = (jobs: Job[], userProfile: UserProfile | null): S
       }
     }
 
-    // 6. RECENCY BONUS (0-5 points) — Fresh jobs get a small boost
+    // 6. RECENCY (0-5)
     const daysSincePosted = (Date.now() - job.createdAt) / (1000 * 60 * 60 * 24);
     if (daysSincePosted < 1) score += 5;
     else if (daysSincePosted < 3) score += 3;
     else if (daysSincePosted < 7) score += 1;
 
-    return { ...job, matchScore: Math.round(score), matchReasons: reasons };
+    return { ...job, matchScore: Math.round(score), matchReasons: reasons, distanceKm: dKm };
   });
 
-  // Sort: highest score first, then by recency for same scores
   return scoredJobs.sort((a, b) => {
     if (b.matchScore !== a.matchScore) return b.matchScore - a.matchScore;
     return b.createdAt - a.createdAt;
   });
 };
+
